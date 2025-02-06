@@ -104,58 +104,56 @@ def data_schema(df):
         print(traceback.format_exc())
         return None
 
-user_input = 'vila prudente sao paulo'
 
-latlon, data_matrix_response = search_latlon(user_input=user_input)
-weather_result = search_weather_condition(lat_lon=latlon)
+def collect_data():
+    user_input = 'vila prudente sao paulo'
 
-raw_data_to_save = generate_raw_json(data_matrix_json=data_matrix_response,
-                  tomorrow_io_info=weather_result,
-                  user_input=user_input)
+    latlon, data_matrix_response = search_latlon(user_input=user_input)
+    weather_result = search_weather_condition(lat_lon=latlon)
 
-save_raw_data(raw_data_to_save)
+    raw_data_to_save = generate_raw_json(data_matrix_json=data_matrix_response,
+                                         tomorrow_io_info=weather_result,
+                                         user_input=user_input)
 
+    save_raw_data(raw_data_to_save)
 
-all_data_collected = glob.glob(f"{raw_data_path}/*.json")
+def process_data():
+    all_data_collected = glob.glob(f"{raw_data_path}/*.json")
 
-print(all_data_collected)
+    print(all_data_collected)
 
+    for file in all_data_collected:
+        with open(file, 'r', encoding='utf-8') as openfile:
+            file_content = json.load(openfile)
 
-for file in all_data_collected:
-    with open(file,'r',encoding='utf-8') as openfile:
-       file_content = json.load(openfile)
+        extracted_data = extract_data(raw_data=file_content)
+        if extracted_data is not None and isinstance(extracted_data, pd.DataFrame):
+            validated_data = data_schema(extracted_data)
+            if validated_data is not None and isinstance(validated_data, pd.DataFrame):
+                validated_data['hash_id'] = file_content['hash_id']
+                filename = f"{file_content['hash_id']}.parquet"
+                validated_data.to_parquet(f"{processed_data_path}/{filename}", index=False)
 
-    extracted_data = extract_data(raw_data=file_content)
-    if extracted_data is not None and isinstance(extracted_data, pd.DataFrame):
-        validated_data = data_schema(extracted_data)
-        if validated_data is not None and isinstance(validated_data, pd.DataFrame):
-            validated_data['hash_id'] = file_content['hash_id']
-            filename = f"{file_content['hash_id']}.parquet"
-            validated_data.to_parquet(f"{processed_data_path}/{filename}",index=False)
+def data_partitioning():
+    all_staging_files = glob.glob(f"{processed_data_path}/*.parquet")
+    print(all_staging_files)
 
-all_staging_files = glob.glob(f"{processed_data_path}/*.parquet")
-print(all_staging_files)
+    for file in all_staging_files:
+        df = pd.read_parquet(file)
+        print(df['address'])
+        address_list = list(set(df['address'].unique().tolist()))
+        print(address_list)
+        for address in address_list:
+            country = str(address.split(',')[-1]).strip()
+            state = str(address.split(',')[-2].split('-')[1]).split('State of')[1].strip()
+            city = str(address.split(',')[-2].split('-')[0]).strip()
+            region = str(address.split(',')[0]).strip()
 
-for file in all_staging_files:
-    df = pd.read_parquet(file)
-    print(df['address'])
-    address_list = list(set(df['address'].unique().tolist()))
-    print(address_list)
-    for address in address_list:
-        country = str(address.split(',')[-1]).strip()
-        state = str(address.split(',')[-2].split('-')[1]).split('State of')[1].strip()
-        city = str(address.split(',')[-2].split('-')[0]).strip()
-        region = str(address.split(',')[0]).strip()
+            partitioned_path = partitioned_data_path.joinpath(country).joinpath(state).joinpath(city).joinpath(region)
+            partitioned_path.mkdir(parents=True, exist_ok=True)
+            df_filtered = df[df['address'] == address]
 
-        partitioned_path = partitioned_data_path.joinpath(country).joinpath(state).joinpath(city).joinpath(region)
-        partitioned_path.mkdir(parents=True, exist_ok=True)
-        df_filtered = df[df['address'] == address]
+            unique_id = str(df_filtered['hash_id'].unique().tolist()[0])
 
-        unique_id = str(df_filtered['hash_id'].unique().tolist()[0])
-
-        df_filtered.to_parquet(f"{partitioned_path}/{unique_id}.parquet",index=False)
-
-
-
-        print(country, state,city,region)
+            df_filtered.to_parquet(f"{partitioned_path}/{unique_id}.parquet", index=False)
 
