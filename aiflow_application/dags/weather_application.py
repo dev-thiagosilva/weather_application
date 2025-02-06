@@ -25,20 +25,17 @@ processed_data_path.mkdir(parents=True, exist_ok=True)
 partitioned_data_path = project_path.joinpath('partitioned_data')
 partitioned_data_path.mkdir(parents=True, exist_ok=True)
 
-def search_latlon(user_input:str):
-    latlon = None
+def _search_latlon(user_input:str):
     dis_matrix_api = '52E2Gs71uO7V5aoZkYVsO0Dc2iMiBbnSh2AphRq8ksGQohOGMOP0OISg0BK8uEWD'
     distance_matrix = f"https://api.distancematrix.ai/maps/api/geocode/json?address={user_input}&key={dis_matrix_api}"
 
-    # response = requests.get(distance_matrix)
-    # print(response.text)
-    response_json = {"result":[{"address_components":[{"long_name":"vila prudente","short_name":"vila prudente","types":["suburb"]},{"long_name":"são","short_name":"são","types":["locality"]},{"long_name":"paulo state of são","short_name":"paulo state of são","types":["house"]},{"long_name":"paulo","short_name":"paulo","types":["locality"]},{"long_name":"brazil","short_name":"brazil","types":["country"]}],"formatted_address":"Vila Prudente, São Paulo - State of São Paulo, Brazil","geometry":{"location":{"lat":-23.57966035,"lng":-46.5838581},"location_type":"APPROXIMATE","viewport":{"northeast":{"lat":-23.57966035,"lng":-46.5838581},"southwest":{"lat":-23.57966035,"lng":-46.5838581}}},"place_id":"","plus_code":{},"types":["locality","political"]}],"status":"OK"}
-
+    response = requests.get(distance_matrix)
+    response_json = json.loads(response.text)
     response_latlon = response_json['result'][0]["geometry"]["location"]
 
     return response_latlon, response_json
 
-def search_weather_condition(lat_lon: dict):
+def _search_weather_condition(lat_lon: dict):
     latitude = lat_lon['lat']
     longitude = lat_lon['lng']
     print(latitude, longitude)
@@ -49,7 +46,7 @@ def search_weather_condition(lat_lon: dict):
     response = json.loads(response.text)
     return response
 
-def generate_raw_json(user_input,data_matrix_json: dict, tomorrow_io_info: dict):
+def _generate_raw_json(user_input, data_matrix_json: dict, tomorrow_io_info: dict):
 
     dict_raw = {
         'address_input': user_input,
@@ -60,7 +57,7 @@ def generate_raw_json(user_input,data_matrix_json: dict, tomorrow_io_info: dict)
 
     return dict_raw
 
-def save_raw_data(raw_data_dict):
+def _save_raw_data(raw_data_dict):
 
     address = str(raw_data_dict['distance_matrix_api_response']['result'][0]['formatted_address'])
     date_now = str(datetime.datetime.today()).split(' ')[0]
@@ -71,7 +68,7 @@ def save_raw_data(raw_data_dict):
     with open(f"{raw_data_path}/{filename}",'w',encoding='utf-8') as savefile:
         savefile.write(json.dumps(raw_data_dict))
 
-def extract_data(raw_data):
+def _extract_data(raw_data):
     try:
         all_dataframes = []
         for data in raw_data['weather_api_response']['timelines']['daily']:
@@ -89,7 +86,7 @@ def extract_data(raw_data):
         print(traceback.format_exc())
         return None
 
-def data_schema(df):
+def _data_schema(df):
     try:
         for col in df.columns:
             if col in ['address', 'hash_id']:
@@ -108,14 +105,14 @@ def data_schema(df):
 def collect_data():
     user_input = 'vila prudente sao paulo'
 
-    latlon, data_matrix_response = search_latlon(user_input=user_input)
-    weather_result = search_weather_condition(lat_lon=latlon)
+    latlon, data_matrix_response = _search_latlon(user_input=user_input)
+    weather_result = _search_weather_condition(lat_lon=latlon)
 
-    raw_data_to_save = generate_raw_json(data_matrix_json=data_matrix_response,
-                                         tomorrow_io_info=weather_result,
-                                         user_input=user_input)
+    raw_data_to_save = _generate_raw_json(data_matrix_json=data_matrix_response,
+                                          tomorrow_io_info=weather_result,
+                                          user_input=user_input)
 
-    save_raw_data(raw_data_to_save)
+    _save_raw_data(raw_data_to_save)
 
 def process_data():
     all_data_collected = glob.glob(f"{raw_data_path}/*.json")
@@ -126,9 +123,9 @@ def process_data():
         with open(file, 'r', encoding='utf-8') as openfile:
             file_content = json.load(openfile)
 
-        extracted_data = extract_data(raw_data=file_content)
+        extracted_data = _extract_data(raw_data=file_content)
         if extracted_data is not None and isinstance(extracted_data, pd.DataFrame):
-            validated_data = data_schema(extracted_data)
+            validated_data = _data_schema(extracted_data)
             if validated_data is not None and isinstance(validated_data, pd.DataFrame):
                 validated_data['hash_id'] = file_content['hash_id']
                 filename = f"{file_content['hash_id']}.parquet"
@@ -145,7 +142,11 @@ def data_partitioning():
         print(address_list)
         for address in address_list:
             country = str(address.split(',')[-1]).strip()
-            state = str(address.split(',')[-2].split('-')[1]).split('State of')[1].strip()
+            try:
+                state = str(address.split(',')[-2].split('-')[1]).split('State of')[1].strip()
+            except IndexError:
+                state = str(address.split(',')[-2].split('-')[1]).strip()
+
             city = str(address.split(',')[-2].split('-')[0]).strip()
             region = str(address.split(',')[0]).strip()
 
@@ -157,3 +158,8 @@ def data_partitioning():
 
             df_filtered.to_parquet(f"{partitioned_path}/{unique_id}.parquet", index=False)
 
+
+if __name__ == '__main__':
+    collect_data()
+    process_data()
+    data_partitioning()
