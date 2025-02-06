@@ -1,3 +1,5 @@
+import traceback
+
 import requests
 import pandas as pd
 import json
@@ -5,6 +7,7 @@ import datetime
 from pathlib import Path
 import os
 import hashlib
+import glob
 
 # Creating path to local files
 project_path = Path(os.getcwd()).joinpath('data_weather_app')
@@ -63,10 +66,43 @@ def save_raw_data(raw_data_dict):
     date_now = str(datetime.datetime.today()).split(' ')[0]
 
     hash_id = str(hashlib.sha256(str(f"{address}{date_now}").strip().encode('utf-8')).hexdigest())
-
+    raw_data_dict['hash_id'] = hash_id
     filename = f"{hash_id}.json"
     with open(f"{raw_data_path}/{filename}",'w',encoding='utf-8') as savefile:
         savefile.write(json.dumps(raw_data_dict))
+
+def extract_data(raw_data):
+    try:
+        all_dataframes = []
+        for data in raw_data['weather_api_response']['timelines']['daily']:
+            forecast_data = data['values']
+            forecast_data['address'] = str(raw_data['distance_matrix_api_response']['result'][0]['formatted_address'])
+            forecast_data['latitude'] = raw_data['distance_matrix_api_response']['result'][0]["geometry"]["location"]['lat']
+            forecast_data['longitude'] = raw_data['distance_matrix_api_response']['result'][0]["geometry"]["location"]['lng']
+            forecast_data['time'] = data['time']
+            df = pd.DataFrame([forecast_data])
+            all_dataframes.append(df)
+
+        merged_df = pd.concat(all_dataframes)
+        return merged_df
+    except:
+        print(traceback.format_exc())
+        return None
+
+def data_schema(df):
+    try:
+        for col in df.columns:
+            if col in ['address', 'hash_id']:
+                df[col] = df[col].astype(str)
+            elif col in ['time','data_collected']:
+                df[col] = pd.to_datetime(df[col],errors='coerce')
+            else:
+                df[col] = pd.to_numeric(df[col],errors='coerce')
+
+        return df
+    except:
+        print(traceback.format_exc())
+        return None
 
 user_input = 'vila prudente sao paulo'
 
@@ -78,4 +114,48 @@ raw_data_to_save = generate_raw_json(data_matrix_json=data_matrix_response,
                   user_input=user_input)
 
 save_raw_data(raw_data_to_save)
+
+
+all_data_collected = glob.glob(f"{raw_data_path}/*.json")
+
+print(all_data_collected)
+
+
+for file in all_data_collected:
+    with open(file,'r',encoding='utf-8') as openfile:
+       file_content = json.load(openfile)
+
+    extracted_data = extract_data(raw_data=file_content)
+    if extracted_data is not None and isinstance(extracted_data, pd.DataFrame):
+        validated_data = data_schema(extracted_data)
+        if validated_data is not None and isinstance(validated_data, pd.DataFrame):
+            validated_data['hash_id'] = file_content['hash_id']
+            filename = f"{file_content['hash_id']}.parquet"
+            validated_data.to_parquet(f"{processed_data_path}/{filename}",index=False)
+
+all_staging_files = glob.glob(f"{processed_data_path}/*.parquet")
+print(all_staging_files)
+
+for file in all_staging_files:
+    df = pd.read_parquet(file)
+    print(df['address'])
+    address_list = list(set(df['address'].unique().tolist()))
+    print(address_list)
+    for address in address_list:
+        country = str(address.split(',')[-1]).strip()
+        state = str(address.split(',')[-2].split('-')[1]).split('State of')[1].strip()
+        city = str(address.split(',')[-2].split('-')[0]).strip()
+        region = str(address.split(',')[0]).strip()
+
+        partitioned_path = partitioned_data_path.joinpath(country).joinpath(state).joinpath(city).joinpath(region)
+        partitioned_path.mkdir(parents=True, exist_ok=True)
+        df_filtered = df[df['address'] == address]
+
+        unique_id = str(df_filtered['hash_id'].unique().tolist()[0])
+
+        df_filtered.to_parquet(f"{partitioned_path}/{unique_id}.parquet",index=False)
+
+
+
+        print(country, state,city,region)
 
