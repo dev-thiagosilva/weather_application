@@ -15,6 +15,8 @@ This project is a data pipeline that collects, processes, and partitions weather
 #### ⭐Simple Execution
 <img src="https://github.com/user-attachments/assets/719cbada-1282-4f55-9ac3-dee5cd226a11" width="50%" height="50%"/>
 
+#### 📹Live coding
+https://www.youtube.com/watch?v=9_UXOt7UFQk
 
 ## Prerequisites
 Before running the project, ensure you have the following installed:
