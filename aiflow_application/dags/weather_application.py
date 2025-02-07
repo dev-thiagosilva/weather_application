@@ -10,7 +10,7 @@ import hashlib
 import glob
 
 # Creating path to local files
-project_path = Path(os.getcwd()).joinpath('data_weather_app')
+project_path = Path(__file__).resolve().parent.joinpath('data_weather_app')
 project_path.mkdir(parents=True, exist_ok=True)
 
 # Folder to raw data
@@ -103,7 +103,7 @@ def _data_schema(df):
 
 
 def collect_data():
-    user_input = 'vila prudente sao paulo'
+    user_input = 'sao lucas sao paulo'
 
     latlon, data_matrix_response = _search_latlon(user_input=user_input)
     weather_result = _search_weather_condition(lat_lon=latlon)
