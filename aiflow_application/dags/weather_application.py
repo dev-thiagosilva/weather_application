@@ -1,15 +1,14 @@
-import traceback
-
-import requests
-import pandas as pd
-import json
 import datetime
-from pathlib import Path
-import os
-import hashlib
 import glob
+import hashlib
+import json
+import traceback
+from pathlib import Path
 
-# Creating path to local files
+import pandas as pd
+import requests
+
+# Define project directory structure
 project_path = Path(__file__).resolve().parent.joinpath('data_weather_app')
 project_path.mkdir(parents=True, exist_ok=True)
 
@@ -25,20 +24,38 @@ processed_data_path.mkdir(parents=True, exist_ok=True)
 partitioned_data_path = project_path.joinpath('partitioned_data')
 partitioned_data_path.mkdir(parents=True, exist_ok=True)
 
-def _search_latlon(user_input:str):
+
+def _search_latlon(address: str):
+    """
+        Fetch latitude and longitude for a given address using the Distance Matrix API.
+
+        Args:
+            address (str): The address to fetch latitude and longitude for.
+
+        Returns:
+            tuple: A dictionary with latitude/longitude and the full API response.
+        """
     dis_matrix_api = '52E2Gs71uO7V5aoZkYVsO0Dc2iMiBbnSh2AphRq8ksGQohOGMOP0OISg0BK8uEWD'
-    distance_matrix = f"https://api.distancematrix.ai/maps/api/geocode/json?address={user_input}&key={dis_matrix_api}"
+    distance_matrix = f"https://api.distancematrix.ai/maps/api/geocode/json?address={address}&key={dis_matrix_api}"
 
     response = requests.get(distance_matrix)
-    print(response.status_code)
     response_json = json.loads(response.text)
-    print(response_json)
 
     response_latlon = response_json['result'][0]["geometry"]["location"]
 
     return response_latlon, response_json
 
+
 def _search_weather_condition(lat_lon: dict):
+    """
+        Fetch weather forecast for a given latitude and longitude using Tomorrow.io API.
+
+        Args:
+            lat_lon (dict): A dictionary with 'lat' and 'lng' keys representing coordinates.
+
+        Returns:
+            dict: The weather forecast data.
+        """
     latitude = lat_lon['lat']
     longitude = lat_lon['lng']
     print(latitude, longitude)
@@ -49,37 +66,66 @@ def _search_weather_condition(lat_lon: dict):
     response = json.loads(response.text)
     return response
 
-def _generate_raw_json(user_input, data_matrix_json: dict, tomorrow_io_info: dict):
 
+def _generate_raw_json(address_input, geo_data: dict, weather_data: dict):
+    """
+       Generate a structured raw data dictionary combining geolocation and weather data.
+
+       Args:
+           address_input (str): The input address.
+           geo_data (dict): Geolocation API response.
+           weather_data (dict): Weather API response.
+
+       Returns:
+           dict: Combined raw data with a timestamp and hash ID.
+    """
     dict_raw = {
-        'address_input': user_input,
-        'distance_matrix_api_response': data_matrix_json,
-        'weather_api_response': tomorrow_io_info,
-        'statistics':{'date':datetime.datetime.now().strftime(format="%Y-%m-%d %H:%M:%S")}
+        'address_input': address_input,
+        'distance_matrix_api_response': geo_data,
+        'weather_api_response': weather_data,
+        'statistics': {'date': datetime.datetime.now().strftime(format="%Y-%m-%d %H:%M:%S")}
     }
 
     return dict_raw
 
-def _save_raw_data(raw_data_dict):
 
-    address = str(raw_data_dict['distance_matrix_api_response']['result'][0]['formatted_address'])
+def _save_raw_data(raw_data):
+    """
+        Save the raw data as a JSON file with a unique hash-based filename.
+
+        Args:
+            raw_data (dict): The raw data dictionary.
+    """
+    address = str(raw_data['distance_matrix_api_response']['result'][0]['formatted_address'])
     date_now = str(datetime.datetime.today()).split(' ')[0]
 
     hash_id = str(hashlib.sha256(str(f"{address}{date_now}").strip().encode('utf-8')).hexdigest())
-    raw_data_dict['hash_id'] = hash_id
+    raw_data['hash_id'] = hash_id
     filename = f"{hash_id}.json"
-    with open(f"{raw_data_path}/{filename}",'w',encoding='utf-8') as savefile:
-        savefile.write(json.dumps(raw_data_dict))
+    with open(f"{raw_data_path}/{filename}", 'w', encoding='utf-8') as savefile:
+        savefile.write(json.dumps(raw_data))
+
 
 def _extract_data(raw_data):
+    """
+        Extract weather data from raw JSON and convert it into a DataFrame.
+
+        Args:
+            raw_data (dict): Raw JSON data containing weather information.
+
+        Returns:
+            pd.DataFrame: Extracted and flattened weather data.
+        """
     try:
         all_dataframes = []
         for forecast_type in list(raw_data['weather_api_response']['timelines'].keys()):
             data = raw_data['weather_api_response']['timelines'][forecast_type]
             forecast_data = data['values']
             forecast_data['address'] = str(raw_data['distance_matrix_api_response']['result'][0]['formatted_address'])
-            forecast_data['latitude'] = raw_data['distance_matrix_api_response']['result'][0]["geometry"]["location"]['lat']
-            forecast_data['longitude'] = raw_data['distance_matrix_api_response']['result'][0]["geometry"]["location"]['lng']
+            forecast_data['latitude'] = raw_data['distance_matrix_api_response']['result'][0]["geometry"]["location"][
+                'lat']
+            forecast_data['longitude'] = raw_data['distance_matrix_api_response']['result'][0]["geometry"]["location"][
+                'lng']
             forecast_data['time'] = data['time']
             df = pd.DataFrame([forecast_data])
             all_dataframes.append(df)
@@ -90,15 +136,25 @@ def _extract_data(raw_data):
         print(traceback.format_exc())
         return None
 
+
 def _data_schema(df):
+    """
+        Validate and convert DataFrame columns to the appropriate data types.
+
+        Args:
+            df (pd.DataFrame): DataFrame to be validated.
+
+        Returns:
+            pd.DataFrame: Validated DataFrame.
+        """
     try:
         for col in df.columns:
             if col in ['address', 'hash_id']:
                 df[col] = df[col].astype(str)
-            elif col in ['time','data_collected']:
-                df[col] = pd.to_datetime(df[col],errors='coerce')
+            elif col in ['time', 'data_collected']:
+                df[col] = pd.to_datetime(df[col], errors='coerce')
             else:
-                df[col] = pd.to_numeric(df[col],errors='coerce')
+                df[col] = pd.to_numeric(df[col], errors='coerce')
 
         return df
     except:
@@ -107,21 +163,32 @@ def _data_schema(df):
 
 
 def collect_data(location_input: str = None):
+    """
+    Responsible for collecting data from initial geolocation sources.
+
+    :param location_input: Address to be searched.
+    :return:
+    """
     if location_input is None:
         user_input = 'vila prudente sao paulo'
     else:
         user_input = location_input
 
-    latlon, data_matrix_response = _search_latlon(user_input=user_input)
+    latlon, data_matrix_response = _search_latlon(address=user_input)
     weather_result = _search_weather_condition(lat_lon=latlon)
 
-    raw_data_to_save = _generate_raw_json(data_matrix_json=data_matrix_response,
-                                          tomorrow_io_info=weather_result,
-                                          user_input=user_input)
+    raw_data_to_save = _generate_raw_json(geo_data=data_matrix_response,
+                                          weather_data=weather_result,
+                                          address_input=user_input)
 
     _save_raw_data(raw_data_to_save)
 
+
 def process_data():
+    """
+    Responsible for process all collected data.
+    :return:
+    """
     all_data_collected = glob.glob(f"{raw_data_path}/*.json")
 
     print(all_data_collected)
@@ -138,7 +205,12 @@ def process_data():
                 filename = f"{file_content['hash_id']}.parquet"
                 validated_data.to_parquet(f"{processed_data_path}/{filename}", index=False)
 
+
 def data_partitioning():
+    """
+    Process responsible for partitioning data locally.
+    :return:
+    """
     all_staging_files = glob.glob(f"{processed_data_path}/*.parquet")
     print(all_staging_files)
 
@@ -158,11 +230,11 @@ def data_partitioning():
                     except IndexError:
                         state = str(address.split(',')[1].split('-')[1]).strip()
 
-
                 city = str(address.split(',')[-2].split('-')[0]).strip()
                 region = str(address.split(',')[0]).strip()
 
-                partitioned_path = partitioned_data_path.joinpath(country).joinpath(state).joinpath(city).joinpath(region)
+                partitioned_path = partitioned_data_path.joinpath(country).joinpath(state).joinpath(city).joinpath(
+                    region)
                 partitioned_path.mkdir(parents=True, exist_ok=True)
                 df_filtered = df[df['address'] == address]
 
@@ -172,8 +244,10 @@ def data_partitioning():
         except:
             print(traceback.format_exc())
 
+
 if __name__ == '__main__':
-    default_locations = ['Vila Prudente são paulo', 'mocca sao paulo', 'vila clementino sao paulo', 'ipiranga sao paulo', 'tamanduatei sao paulo']
+    default_locations = ['Vila Prudente são paulo', 'mocca sao paulo', 'vila clementino sao paulo',
+                         'ipiranga sao paulo', 'tamanduatei sao paulo']
 
     for location in default_locations:
         collect_data(location_input=location)
