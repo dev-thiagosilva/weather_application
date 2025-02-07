@@ -9,6 +9,13 @@ This project is a data pipeline that collects, processes, and partitions weather
 - **Partitioning**: Organises processed data into a hierarchical folder structure by country, state, city, and region.  
 - **Airflow Integration**: Automates and schedules the data pipeline.  
 
+#### ⭐Streamlit dashboard 
+<img src="https://github.com/user-attachments/assets/cece0e1a-6a1d-4318-a1d1-12a87c8f9517" width="50%" height="50%"/>
+
+#### ⭐Simple Execution
+<img src="https://github.com/user-attachments/assets/719cbada-1282-4f55-9ac3-dee5cd226a11" width="50%" height="50%"/>
+
+
 ## Prerequisites
 Before running the project, ensure you have the following installed:
 - Python 3.x  
@@ -50,6 +57,10 @@ aiflow_application/
 2. Initialize airflow with ```airflow webserver```.
 3. Ensure you have valid API keys for both the Distance Matrix API and Tomorrow.io. Assign them to `dis_matrix_api` and `tomorrow_api` respectively. (The api keys presented on code documentation will expire soon)
 4. Run Airflow and trigger the DAG
+
+   **or ...**
+   
+5. Run **aiflow_application/dags/weather_application.py**
 
 The pipeline will:
 - Collect data for the specified locations.
