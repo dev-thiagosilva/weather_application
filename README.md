@@ -64,6 +64,8 @@ aiflow_application/
    
 5. Run **aiflow_application/dags/weather_application.py**
 
+Then, use ```streamlit run dashboard_app.py``` to initiate streamlit locally.
+
 The pipeline will:
 - Collect data for the specified locations.
 - Process and clean the data.
